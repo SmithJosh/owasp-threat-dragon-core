@@ -67,7 +67,7 @@ var stencil = function (diagramming) {
 
 };
 
-var diagram = function (common, diagramming) {
+var diagram = function (common, diagramming, selection) {
 
     var directive = {
         link: link,
@@ -84,8 +84,6 @@ var diagram = function (common, diagramming) {
         }
     };
 
-    var selected = null;
-    var selectOnScope = null;
     var getLogFn = common.logger.getLogFn;
     var log = getLogFn();
 
@@ -96,9 +94,8 @@ var diagram = function (common, diagramming) {
         $(element).parent().height(scope.height);
         var diagram = diagramming.newDiagram(scope.height - 10, scope.width - 10, scope.gridSize, scope.graph, element[0], scope.interactive);
 
-        selectOnScope = scope.select;
-
         scope.graph.on('add', function (newCell) { newCell.translate($(element).parent().scrollLeft(), $(element).parent().scrollTop()); });
+        scope.graph.addCell(selection.newContainer());
 
         diagram.on('cell:pointerclick', function (cellView) {
             if (!cellView.model.isLink()) {
@@ -115,33 +112,46 @@ var diagram = function (common, diagramming) {
                 }
                 else {
 
-                    if (selected && !selected.model.isLink() && selected.linkFrom) {
+                    selection.getCells().forEach(cell => {
+                        var sourceCellView = diagram.findViewByModel(cell);
 
-                        scope.newFlow({ source: selected.model, target: cellView.model });
-                        removeLinkFrom(selected);
-                    }
-
-                    setSelected(cellView);
+                        if (sourceCellView && !sourceCellView.model.isLink() && sourceCellView.linkFrom) {
+                            scope.newFlow({ source: sourceCellView.model, target: cellView.model });
+                            removeLinkFrom(sourceCellView);
+                        }
+                    });
+                    
+                    // TODO: change to setSelected after there's a way to enable multi-select
+                    diagram.addSelected(cellView);
                 }
             }
         });
 
         diagram.on('blank:pointerclick', function () {
 
-            if (selected && !selected.model.isLink()) {
-                removeLinkFrom(selected);
-            }
+            selection.getCells().forEach(cell => {
+                var cellView = diagram.findViewByModel(cell);
 
-            setSelected(null);
+                if (cellView && !cellView.model.isLink()) {
+                    removeLinkFrom(cellView);
+                }
+            });
+
+            diagram.clearSelection();
         });
 
         diagram.on('link:options', function (cellView, evt) {
 
-            if (selected && !selected.model.isLink()) {
-                removeLinkFrom(selected);
-            }
+            selection.getCells().forEach(cell => {
+                var selectedCellView = diagram.findViewByModel(cell);
 
-            setSelected(cellView);
+                if (selectedCellView && !selectedCellView.model.isLink()) {
+                    removeLinkFrom(selectedCellView);
+                }
+            });
+
+            // TODO: Is this right?
+            diagram.setSelected(cellView);
         });
 
         diagram.on('cell:pointermove', function (cellView, evt, x, y) {
@@ -212,24 +222,34 @@ var diagram = function (common, diagramming) {
             }
         });
 
-        diagram.setSelected = function (cell) {
-
-            if (selected) {
-                selected.setUnselected();
-            }
-
-            if (cell) {
+        diagram.clearSelection = function () {
+            selection.getCells().forEach(cell => {
                 var cellView = diagram.findViewByModel(cell);
 
                 if (cellView) {
-                    cellView.setSelected();
-                    selected = cellView;
+                    cellView.setUnselected();
                 }
-            }
-            else {
-                selected = null;
-            }
-        };
+            });
+            selection.clear();
+
+            
+        }
+
+        diagram.addSelected = function (cellView) {
+            cellView.setSelected();
+            selection.add(cellView.model);
+        }
+
+        diagram.setSelected = function (cellView) {
+            diagram.clearSelection();
+            cellView.setSelected();
+            selection.set(cellView.model);
+        }
+
+        diagram.setUnselected = function (cellView) {
+            cellView.setUnselected();
+            selection.remove(cellView.model);
+        }
 
         scope.initialiseGraph({ diagram: diagram });
     }
@@ -241,16 +261,6 @@ var diagram = function (common, diagramming) {
 
     function removeLinkFrom(cellView) {
         cellView.removeLinkFrom();
-    }
-
-    function setSelected(cellView) {
-        var element = null;
-
-        if (cellView) {
-            element = cellView.model;
-        }
-
-        selectOnScope({ element: element });
     }
 
 };

@@ -2,7 +2,7 @@
 
 var _ = require('lodash');
 
-function diagram($scope, $location, $routeParams, $timeout, dialogs, common, datacontext, threatengine, diagramming, threatmodellocator) {
+function diagram($scope, $location, $routeParams, $timeout, dialogs, common, datacontext, threatengine, diagramming, threatmodellocator, selection) {
 
     // Using 'Controller As' syntax, so we assign this to the vm variable (for viewmodel).
     /*jshint validthis: true */
@@ -30,13 +30,12 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
     vm.newBoundary = newBoundary;
     vm.cloneElement = cloneElement;
     vm.getThreatModelPath = getThreatModelPath;
-    vm.select = select;
     vm.edit = edit;
     vm.generateThreats = generateThreats;
     vm.duplicateElement = duplicateElement;
     vm.setGrid = setGrid;
     vm.showGrid = false;
-    vm.selected = null;
+    vm.selection = selection;
     vm.viewStencil = true;
     vm.viewThreats = false;
     vm.stencils = getStencils();
@@ -65,11 +64,6 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
         if (vm.dirty && absPathCurrent != absPathPrevious) {
             dialogs.structuredExit(event, function () { }, function () { vm.dirty = false; });
         }
-    });
-
-    //element select
-    $scope.$on('$locationChangeSuccess', function (event, current, previous) {
-        onSelectElement();
     });
 
     activate();
@@ -133,21 +127,6 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
             vm.diagram = data;
             vm.dirty = false;
 
-            if ($routeParams.element) {
-                var element = vm.graph.getCellById($routeParams.element);
-                initialSelect(element);
-                //a bit ugly - can we remove the dependency on the diagram?
-                vm.currentDiagram.setSelected(element);
-
-                //more ugliness, but $evalAsync does not work!?
-                //This is to ensure the stencils are rendered before they are collapsed
-                //It is a bit jank though as you see the stencil accordian element collapse :(
-                $timeout(function () {
-                    vm.viewStencil = false;
-                    vm.viewThreats = true;
-                });
-            }
-
             vm.loaded = true;
         }
     }
@@ -206,14 +185,14 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
     }
 
     function generateThreats() {
-        if (vm.selected) {
-            threatengine.generateForElement(vm.selected).then(onGenerateThreats);
+        if (vm.selection.getElements().length === 1) {
+            threatengine.generateForElement(vm.selection.first()).then(onGenerateThreats);
         }
     }
 
     function duplicateElement() {
-        if (vm.selected) {
-            var newElement = vm.cloneElement(vm.selected);
+        if (vvm.selection.getElements().length === 1) {
+            var newElement = vm.cloneElement(vm.selection.first());
 
             var label = "";
             if (typeof newElement.attributes.labels != "undefined"){
@@ -266,22 +245,26 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
         }
 
         function addThreat(applyToAll) {
-            vm.dirty = true;
+            if (selection.getElements().length === 1) {
+                var element = selection.first();
 
-            if (_.isUndefined(vm.selected.threats)) {
-                vm.selected.threats = [];
-            }
+                vm.dirty = true;
 
-            vm.selected.threats.push(currentThreat);
-
-            if (applyToAll) {
-                threatList.forEach(function (threat) {
-
-                    vm.selected.threats.push(threat);
-                });
-            }
-            else {
-                $timeout(suggestThreat, 500);
+                if (_.isUndefined(element.threats)) {
+                    element.threats = [];
+                }
+    
+                element.threats.push(currentThreat);
+    
+                if (applyToAll) {
+                    threatList.forEach(function (threat) {
+    
+                        element.threats.push(threat);
+                    });
+                }
+                else {
+                    $timeout(suggestThreat, 500);
+                }
             }
         }
 
@@ -292,42 +275,10 @@ function diagram($scope, $location, $routeParams, $timeout, dialogs, common, dat
         }
     }
 
-    function onSelectElement() {
-        var element = null;
-        var elementId = $routeParams.element;
-
-        if (elementId) {
-            element = vm.graph.getCellById(elementId);
-        }
-
-        vm.selected = element;
-
-        //existence test is required to support unit tests where currentDiagram is not initialised
-        if (typeof vm.currentDiagram.setSelected === 'function' || typeof vm.currentDiagram.setSelected === 'object') {
-            vm.currentDiagram.setSelected(element);
-        }
-    }
-
-    function initialSelect(element) {
-        vm.selected = element;
-    }
-
-    function select(element) {
-        var elementId = null;
-
-        if (element) {
-            elementId = element.id;
-        }
-
-        $location.search('element', elementId);
-        scope.$apply();
-    }
-
     function removeElement(element, graph, state) {
         vm.dirty = true;
-        vm.selected = null;
+        vm.currentDiagram.setUnselected(element);
         unWatchThreats(element);
-        $location.search('element', null);
         //scope.$apply cause an exception when clearing all elements (digest already in progress)
         if (!state.clear) {
             scope.$apply();
